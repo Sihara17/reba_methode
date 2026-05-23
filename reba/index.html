@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>REBA Pro Tools v2</title>
+    
+    <!-- TensorFlow.js & MoveNet -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+    
+    <!-- Export Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1e40af;
+            --secondary: #64748b;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text: #0f172a;
+            --border: #e2e8f0;
+            
+            /* Risk Colors */
+            --risk-low: #22c55e;
+            --risk-med: #eab308;
+            --risk-high: #f97316;
+            --risk-vhigh: #ef4444;
+            --cell-active: #dbeafe;
+            --cell-active-border: #2563eb;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+
+        body { background-color: var(--bg); color: var(--text); padding-bottom: 50px; }
+
+        /* Header */
+        header {
+            background-color: var(--card-bg);
+            padding: 1rem 2rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        h1 { font-size: 1.5rem; color: var(--primary-dark); font-weight: 700; }
+        .subtitle { font-size: 0.9rem; color: var(--secondary); }
+
+        /* Layout */
+        main {
+            display: grid;
+            grid-template-columns: 1fr 450px;
+            gap: 20px;
+            max-width: 1500px;
+            margin: 20px auto;
+            padding: 0 20px;
+        }
+        @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
+
+        /* Card Styles */
+        .card {
+            background: var(--card-bg);
+            border-radius: 8px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid var(--border);
+        }
+        .card-header {
+            font-weight: 600;
+            font-size: 1.1rem;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid var(--bg);
+            color: var(--primary-dark);
+        }
+
+        /* Upload Area */
+        .upload-area {
+            border: 2px dashed var(--primary);
+            background: #eff6ff;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+        .upload-area:hover { background: #dbeafe; }
+        .hidden { display: none !important; }
+
+        /* Canvas */
+        .canvas-container {
+            position: relative;
+            width: 100%;
+            overflow: hidden;
+            background: #000;
+            border-radius: 4px;
+            cursor: crosshair;
+            text-align: center;
+        }
+        canvas { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+        
+        .loading-overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+        }
+        .spinner {
+            width: 40px; height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 10px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Controls */
+        .form-group { margin-bottom: 12px; }
+        label { display: block; margin-bottom: 5px; font-weight: 500; font-size: 0.9rem; }
+        select, input {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 0.9rem;
+            background: #fff;
+        }
+
+        /* REBA Grid Tables */
+        .reba-section-title { font-weight: bold; font-size: 0.9rem; margin: 15px 0 5px 0; color: #475569; }
+        .reba-grid {
+            display: grid;
+            grid-template-columns: 80px repeat(4, 1fr); /* Label + 4 Cols for A */
+            gap: 1px;
+            background-color: var(--border);
+            border: 1px solid var(--border);
+            margin-bottom: 20px;
+        }
+        .reba-grid.group-b {
+            grid-template-columns: 80px repeat(3, 1fr); /* Label + 3 Cols for B */
+        }
+        
+        .grid-cell {
+            background: white;
+            padding: 8px;
+            text-align: center;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 40px;
+        }
+        .grid-header {
+            background: #f1f5f9;
+            font-weight: 600;
+        }
+        .grid-row-label {
+            font-weight: 600;
+            background: #f8fafc;
+            justify-content: flex-start;
+            padding-left: 8px;
+        }
+        .grid-cell.active {
+            background-color: var(--cell-active);
+            border: 2px solid var(--cell-active-border);
+            font-weight: bold;
+            color: var(--primary-dark);
+        }
+
+        /* Results Display */
+        .result-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.9rem; }
+        .result-val { font-weight: bold; }
+        
+        .score-box {
+            text-align: center;
+            padding: 20px;
+            border-radius: 8px;
+            color: white;
+            font-weight: 800;
+            font-size: 2rem;
+            margin: 15px 0;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        .bg-low { background-color: var(--risk-low); }
+        .bg-med { background-color: var(--risk-med); }
+        .bg-high { background-color: var(--risk-high); }
+        .bg-vhigh { background-color: var(--risk-vhigh); }
+
+        .btn {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: 0.2s;
+        }
+        .btn:hover { background-color: var(--primary-dark); }
+        .btn-outline { background: transparent; border: 1px solid var(--primary); color: var(--primary); }
+
+        .angle-details { font-size: 0.8rem; color: var(--secondary); margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px; }
+
+    </style>
+</head>
+<body>
+
+<header>
+    <div>
+        <h1>REBA Pro Tools v2</h1>
+        <div class="subtitle">Analisis Ergonomi dengan Visualisasi Tabel</div>
+    </div>
+    <button class="btn btn-outline" onclick="resetAll()">Reset</button>
+</header>
+
+<main>
+    <!-- Kolom Kiri: Canvas -->
+    <section>
+        <div class="card">
+            <div class="card-header">1. Upload Foto Pekerja</div>
+            <div id="uploadArea" class="upload-area" onclick="document.getElementById('fileInput').click()">
+                <p>Klik untuk upload foto (JPG/PNG).<br>Posisi tubuh harus terlihat jelas.</p>
+                <input type="file" id="fileInput" accept="image/*" hidden onchange="handleImageUpload(event)">
+            </div>
+
+            <div id="canvasWrapper" class="canvas-container hidden">
+                <div id="loading" class="loading-overlay hidden">
+                    <div class="spinner"></div>
+                    <p>Menganalisis Pose...</p>
+                </div>
+                <canvas id="outputCanvas"></canvas>
+            </div>
+            <div class="angle-details" id="canvasHint" style="display:none;">
+                <strong>Interaksi:</strong> Anda bisa menyeret (drag) titik merah untuk memperbaiki posisi.
+            </div>
+            
+            <div class="angle-details" id="angleList">
+                <!-- Angles will be populated here -->
+            </div>
+        </div>
+    </section>
+
+    <!-- Kolom Kanan: Kontrol & Tabel -->
+    <section>
+        <!-- Input Manual -->
+        <div class="card">
+            <div class="card-header">2. Parameter Manual</div>
+            <div class="form-group">
+                <label>Load / Beban (Force)</label>
+                <select id="loadInput" onchange="calculateREBA()">
+                    <option value="0">0 (&lt; 5N)</option>
+                    <option value="1">1 (5 - 50N)</option>
+                    <option value="2">2 (50 - 100N)</option>
+                    <option value="3">3 (&gt; 100N)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Coupling / Kualitas Pegangan</label>
+                <select id="couplingInput" onchange="calculateREBA()">
+                    <option value="0">Good (Baik)</option>
+                    <option value="1">Fair (Sedang)</option>
+                    <option value="2">Poor (Buruk)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Activity / Aktivitas</label>
+                <select id="activityInput" onchange="calculateREBA()">
+                    <option value="0">0: Statis (> 1 menit)</option>
+                    <option value="1">1: Dinamis (Berulang > 4x/menit)</option>
+                    <option value="1">1: Berayun/Stabil</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Tabel Group A -->
+        <div class="card">
+            <div class="card-header">Tabel Group A</div>
+            <div class="reba-section-title">Skor = (Neck + Trunk + Leg) vs Load</div>
+            <div class="reba-grid" id="gridA">
+                <!-- Generated by JS -->
+            </div>
+        </div>
+
+        <!-- Tabel Group B -->
+        <div class="card">
+            <div class="card-header">Tabel Group B</div>
+            <div class="reba-section-title">Skor = (Arm + Wrist) vs Coupling</div>
+            <div class="reba-grid group-b" id="gridB">
+                <!-- Generated by JS -->
+            </div>
+        </div>
+
+        <!-- Hasil Final -->
+        <div class="card hidden" id="finalCard">
+            <div class="card-header">Hasil Analisis Akhir</div>
+            
+            <div class="result-row"><span>Score A:</span> <span class="result-val" id="resA">-</span></div>
+            <div class="result-row"><span>Score B:</span> <span class="result-val" id="resB">-</span></div>
+            <div class="result-row"><span>Table C (A+B):</span> <span class="result-val" id="resC">-</span></div>
+            <div class="result-row"><span>Activity Score:</span> <span class="result-val" id="resAct">-</span></div>
+
+            <div class="score-box" id="finalScoreBox">0</div>
+            
+            <div style="text-align:center; font-weight:bold; margin-bottom:5px" id="riskLabel">Risk Level</div>
+            <div style="text-align:center; font-size:0.85rem; color:#666;" id="actionText">Action Needed</div>
+
+            <button class="btn" style="width:100%; margin-top:15px;" onclick="downloadJSON()">Download JSON</button>
+        </div>
+    </section>
+</main>
+
+<script>
+    // --- GLOBAL VARIABLES ---
+    let detector;
+    let canvas, ctx;
+    let imageElement = new Image();
+    let keypoints = []; 
+    let isDragging = false;
+    let draggedPointIndex = -1;
+    const POINT_RADIUS = 8;
+    const HIT_RADIUS = 15;
+
+    // REBA MATRICES DEFINITION
+    // Group A: Rows = Neck+Trunk+Leg Sum, Cols = Load (0-3)
+    const tableAMatrix = [
+        { range: "1-5",  scores: [1, 2, 2, 3] },
+        { range: "6-7",  scores: [2, 3, 3, 4] },
+        { range: "8-9",  scores: [3, 4, 4, 5] },
+        { range: "10-11", scores: [4, 5, 5, 6] },
+        { range: "12-13", scores: [5, 6, 6, 7] },
+        { range: "14+",  scores: [6, 7, 7, 8] }
+    ];
+
+    // Group B: Rows = UA+LA+W Sum, Cols = Coupling (0-2)
+    const tableBMatrix = [
+        { range: "1-2", scores: [1, 1, 2] },
+        { range: "3-4", scores: [2, 2, 3] },
+        { range: "5-6", scores: [3, 3, 4] },
+        { range: "7-8", scores: [4, 4, 5] },
+        { range: "9-10", scores: [5, 5, 6] },
+        { range: "11-12", scores: [6, 6, 7] }
+    ];
+
+    // --- INITIALIZATION ---
+    window.onload = async () => {
+        initTables(); // Render empty tables
+        canvas = document.getElementById('outputCanvas');
+        ctx = canvas.getContext('2d');
+        setupInteractions();
+
+        const model = poseDetection.SupportedModels.MoveNet;
+        const detectorConfig = { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING };
+        try {
+            detector = await poseDetection.createDetector(model, detectorConfig);
+            console.log("AI Model Ready");
+        } catch (err) {
+            alert("Gagal memuat model AI. Cek koneksi internet.");
+        }
+    };
+
+    function initTables() {
+        // Render Table A
+        const gridA = document.getElementById('gridA');
+        let htmlA = `<div class="grid-cell grid-header">Sum\\Load</div>`;
+        htmlA += `<div class="grid-cell grid-header">0</div><div class="grid-cell grid-header">1</div><div class="grid-cell grid-header">2</div><div class="grid-cell grid-header">3</div>`;
+        
+        tableAMatrix.forEach((row, rIdx) => {
+            htmlA += `<div class="grid-cell grid-row-label">${row.range}</div>`;
+            row.scores.forEach((val, cIdx) => {
+                htmlA += `<div class="grid-cell" id="cell-a-${rIdx}-${cIdx}">${val}</div>`;
+            });
+        });
+        gridA.innerHTML = htmlA;
+
+        // Render Table B
+        const gridB = document.getElementById('gridB');
+        let htmlB = `<div class="grid-cell grid-header">Sum\\Cpl</div>`;
+        htmlB += `<div class="grid-cell grid-header">Good</div><div class="grid-cell grid-header">Fair</div><div class="grid-cell grid-header">Poor</div>`;
+        
+        tableBMatrix.forEach((row, rIdx) => {
+            htmlB += `<div class="grid-cell grid-row-label">${row.range}</div>`;
+            row.scores.forEach((val, cIdx) => {
+                htmlB += `<div class="grid-cell" id="cell-b-${rIdx}-${cIdx}">${val}</div>`;
+            });
+        });
+        gridB.innerHTML = htmlB;
+    }
+
+    // --- IMAGE & POSE DETECTION ---
+    function handleImageUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            imageElement.onload = () => {
+                // Fit canvas to image
+                const wrapper = document.getElementById('canvasWrapper');
+                canvas.width = imageElement.width;
+                canvas.height = imageElement.height;
+                
+                document.getElementById('uploadArea').classList.add('hidden');
+                document.getElementById('canvasWrapper').classList.remove('hidden');
+                document.getElementById('canvasHint').style.display = 'block';
+                
+                detectPose();
+            };
+            imageElement.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    }
+
+    async function detectPose() {
+        document.getElementById('loading').classList.remove('hidden');
+        try {
+            const poses = await detector.estimatePoses(imageElement);
+            const raw = poses[0].keypoints;
+            
+            // Map Right Side (Indices: 6, 8, 10, 12, 14, 16) + Nose(0)
+            if (raw) {
+                keypoints = [
+                    { name: "Nose", x: raw[0].x, y: raw[0].y },
+                    { name: "Shoulder", x: raw[6].x, y: raw[6].y },
+                    { name: "Elbow", x: raw[8].x, y: raw[8].y },
+                    { name: "Wrist", x: raw[10].x, y: raw[10].y },
+                    { name: "Hip", x: raw[12].x, y: raw[12].y },
+                    { name: "Knee", x: raw[14].x, y: raw[14].y },
+                    { name: "Ankle", x: raw[16].x, y: raw[16].y }
+                ];
+            } else {
+                // Fallback points
+                keypoints = [
+                    { name: "Nose", x: canvas.width/2, y: 50 },
+                    { name: "Shoulder", x: canvas.width/2, y: 150 },
+                    { name: "Elbow", x: canvas.width/2 + 50, y: 250 },
+                    { name: "Wrist", x: canvas.width/2 + 80, y: 350 },
+                    { name: "Hip", x: canvas.width/2, y: 350 },
+                    { name: "Knee", x: canvas.width/2, y: 500 },
+                    { name: "Ankle", x: canvas.width/2, y: 650 }
+                ];
+            }
+
+            draw();
+            calculateREBA();
+            document.getElementById('finalCard').classList.remove('hidden');
+
+        } catch (e) {
+            console.error(e);
+        } finally {
+            document.getElementById('loading').classList.add('hidden');
+        }
+    }
+
+    // --- DRAWING & INTERACTION ---
+    function draw() {
+        ctx.clearRect(0,0,canvas.width, canvas.height);
+        ctx.drawImage(imageElement, 0,0);
+
+        // Skeleton
+        ctx.strokeStyle = "#00ff00"; ctx.lineWidth = 4; ctx.lineCap = "round";
+        const lines = [["Shoulder","Elbow"], ["Elbow","Wrist"], ["Hip","Shoulder"], ["Hip","Knee"], ["Knee","Ankle"], ["Shoulder","Nose"]];
+        lines.forEach(([a,b]) => {
+            const p1 = keypoints.find(k=>k.name===a), p2 = keypoints.find(k=>k.name===b);
+            if(p1 && p2) { ctx.beginPath(); ctx.moveTo(p1.x,p1.y); ctx.lineTo(p2.x,p2.y); ctx.stroke(); }
+        });
+
+        // Points
+        keypoints.forEach(p => {
+            ctx.fillStyle = "red"; ctx.beginPath(); ctx.arc(p.x,p.y,POINT_RADIUS,0,Math.PI*2); ctx.fill();
+        });
+    }
+
+    function setupInteractions() {
+        const getPos = (e) => {
+            const r = canvas.getBoundingClientRect();
+            const sx = canvas.width / r.width, sy = canvas.height / r.height;
+            const cx = e.touches ? e.touches[0].clientX : e.clientX;
+            const cy = e.touches ? e.touches[0].clientY : e.clientY;
+            return { x: (cx-r.left)*sx, y: (cy-r.top)*sy };
+        };
+
+        const start = (e) => {
+            e.preventDefault();
+            const pos = getPos(e);
+            keypoints.forEach((p,i) => {
+                if(Math.hypot(p.x-pos.x, p.y-pos.y) < HIT_RADIUS) { isDragging=true; draggedPointIndex=i; }
+            });
+        };
+        const move = (e) => {
+            if(!isDragging) return;
+            e.preventDefault();
+            const pos = getPos(e);
+            keypoints[draggedPointIndex].x = pos.x;
+            keypoints[draggedPointIndex].y = pos.y;
+            draw(); calculateREBA();
+        };
+        const end = () => { isDragging=false; draggedPointIndex=-1; };
+
+        canvas.addEventListener('mousedown', start); canvas.addEventListener('mousemove', move); canvas.addEventListener('mouseup', end);
+        canvas.addEventListener('touchstart', start, {passive:false}); canvas.addEventListener('touchmove', move, {passive:false}); canvas.addEventListener('touchend', end);
+    }
+
+    // --- CORE REBA CALCULATION ---
+    function calculateREBA() {
+        if(keypoints.length < 7) return;
+
+        const p = (n) => keypoints.find(k => k.name === n);
+        const nose = p('Nose'), shoulder = p('Shoulder'), elbow = p('Elbow'), wrist = p('Wrist');
+        const hip = p('Hip'), knee = p('Knee'), ankle = p('Ankle');
+
+        // Angles
+        const angle = (a,b,c) => Math.abs(Math.atan2(c.y-b.y, c.x-b.x) - Math.atan2(a.y-b.y, a.x-b.x))*180/Math.PI;
+        const slope = (a,b) => Math.atan2(Math.abs(b.x-a.x), Math.abs(b.y-a.y))*180/Math.PI;
+
+        const trunkAng = slope(hip, shoulder);
+        const neckAng = slope(shoulder, nose);
+        const kneeAng = 180 - angle(hip, knee, ankle); // Flexion
+        
+        const uaAng = slope(shoulder, elbow);
+        const laAng = angle(shoulder, elbow, wrist);
+        const wristAng = Math.abs(180 - laAng); // Simplified 2D deviation
+
+        // Update Angle UI
+        document.getElementById('angleList').innerHTML = `
+            <div>Trunk: ${trunkAng.toFixed(0)}° | Neck: ${neckAng.toFixed(0)}° | Knee: ${kneeAng.toFixed(0)}°<br>
+                 Upper Arm: ${uaAng.toFixed(0)}° | Lower Arm: ${laAng.toFixed(0)}° | Wrist: ${wristAng.toFixed(0)}°</div>
+        `;
+
+        // 1. GROUP A SCORES
+        let sNeck = (neckAng > 20) ? 2 : 1;
+        let sTrunk = (trunkAng < 20) ? 1 : (trunkAng < 60) ? 2 : (trunkAng < 100) ? 3 : 4;
+        let sLeg = (kneeAng > 60) ? 2 : 1;
+        
+        let sumA = sNeck + sTrunk + sLeg;
+        let loadVal = parseInt(document.getElementById('loadInput').value);
+        
+        // Find Row A
+        let rowA = 0;
+        if (sumA <= 5) rowA = 0;
+        else if (sumA <= 7) rowA = 1;
+        else if (sumA <= 9) rowA = 2;
+        else if (sumA <= 11) rowA = 3;
+        else if (sumA <= 13) rowA = 4;
+        else rowA = 5;
+
+        let scoreA = tableAMatrix[rowA].scores[loadVal];
+
+        // 2. GROUP B SCORES
+        let sUA = (uaAng < 20) ? 1 : (uaAng < 45) ? 2 : (uaAng < 90) ? 3 : 4;
+        let sLA = (laAng >= 60 && laAng <= 100) ? 1 : 2;
+        let sWrist = (wristAng > 15) ? 2 : 1;
+
+        let sumB = sUA + sLA + sWrist;
+        let coupVal = parseInt(document.getElementById('couplingInput').value);
+
+        // Find Row B
+        let rowB = 0;
+        if (sumB <= 2) rowB = 0;
+        else if (sumB <= 4) rowB = 1;
+        else if (sumB <= 6) rowB = 2;
+        else if (sumB <= 8) rowB = 3;
+        else if (sumB <= 10) rowB = 4;
+        else rowB = 5;
+
+        let scoreB = tableBMatrix[rowB].scores[coupVal];
+
+        // 3. TABLE C (C Matrix Lookup)
+        const tableC = [
+            [1,1,2,3,3,4,5,5,6,7,7,7],
+            [1,2,2,3,4,4,5,6,6,7,7,7],
+            [2,2,3,3,4,5,6,6,7,7,8,8],
+            [3,3,3,4,5,6,7,7,8,8,8,8],
+            [4,4,4,5,6,7,7,8,8,8,9,9],
+            [5,5,6,6,7,8,8,9,9,9,9,9],
+            [7,7,7,8,8,9,9,9,9,9,9,9]
+        ];
+        let scoreC = tableC[Math.min(scoreA-1, 6)][Math.min(scoreB-1, 11)];
+
+        // 4. FINAL
+        let actScore = parseInt(document.getElementById('activityInput').value);
+        let finalScore = scoreC + actScore;
+
+        // --- UPDATE UI ---
+        
+        // Highlight Tables
+        document.querySelectorAll('#gridA .grid-cell').forEach(c => c.classList.remove('active'));
+        document.getElementById(`cell-a-${rowA}-${loadVal}`).classList.add('active');
+
+        document.querySelectorAll('#gridB .grid-cell').forEach(c => c.classList.remove('active'));
+        document.getElementById(`cell-b-${rowB}-${coupVal}`).classList.add('active');
+
+        // Text Results
+        document.getElementById('resA').innerText = scoreA;
+        document.getElementById('resB').innerText = scoreB;
+        document.getElementById('resC').innerText = scoreC;
+        document.getElementById('resAct').innerText = "+" + actScore;
+        
+        const box = document.getElementById('finalScoreBox');
+        box.innerText = finalScore;
+        box.className = 'score-box ' + getRiskClass(finalScore);
+        
+        const riskInfo = getRiskInfo(finalScore);
+        document.getElementById('riskLabel').innerText = riskInfo.label;
+        document.getElementById('riskLabel').style.color = riskInfo.color;
+        document.getElementById('actionText').innerText = riskInfo.action;
+    }
+
+    function getRiskClass(s) {
+        if (s <= 1) return 'bg-low';
+        if (s <= 3) return 'bg-low';
+        if (s <= 7) return 'bg-med';
+        if (s <= 10) return 'bg-high';
+        return 'bg-vhigh';
+    }
+
+    function getRiskInfo(s) {
+        if (s <= 1) return { label: "Negligible Risk", color: "#22c55e", action: "Tidak perlu tindakan." };
+        if (s <= 3) return { label: "Low Risk", color: "#eab308", action: "Mungkin perlu tindakan." };
+        if (s <= 7) return { label: "Medium Risk", color: "#f97316", action: "Perlu tindakan lebih lanjut." };
+        if (s <= 10) return { label: "High Risk", color: "#ef4444", action: "Perlu tindakan segera." };
+        return { label: "Very High Risk", color: "#b91c1c", action: "Ubah pekerjaan segera!" };
+    }
+
+    function downloadJSON() {
+        const data = {
+            date: new Date().toISOString(),
+            scores: {
+                groupA: document.getElementById('resA').innerText,
+                groupB: document.getElementById('resB').innerText,
+                tableC: document.getElementById('resC').innerText,
+                activity: document.getElementById('activityInput').value,
+                final: document.getElementById('finalScoreBox').innerText
+            },
+            angles: document.getElementById('angleList').innerText,
+            inputs: {
+                load: document.getElementById('loadInput').value,
+                coupling: document.getElementById('couplingInput').value
+            }
+        };
+        const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'reba_result.json'; a.click();
+    }
+
+    function resetAll() { location.reload(); }
+</script>
+
+</body>
+</html>
